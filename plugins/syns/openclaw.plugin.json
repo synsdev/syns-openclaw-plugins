@@ -1,0 +1,34 @@
+{
+  "id": "syns",
+  "name": "Syns",
+  "description": "Per-turn auto-pull and auto-push of a Syns repository, scoped to directories containing a .syns.yaml.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "pushMessage": {
+        "type": "string",
+        "default": "openclaw session",
+        "description": "Commit message used by `syns push`. Overrides the SYNS_PUSH_MESSAGE env var."
+      },
+      "installIfMissing": {
+        "type": "boolean",
+        "default": true,
+        "description": "Install the syns CLI via install.syns.dev on first use if it is not on PATH."
+      },
+      "pullOnTurnStart": {
+        "type": "boolean",
+        "default": true,
+        "description": "Run `syns pull --if-repo` at the start of every agent turn (before_agent_run)."
+      },
+      "pushOnTurnEnd": {
+        "type": "boolean",
+        "default": true,
+        "description": "Run `syns push --if-repo` at the end of every agent turn (agent_end)."
+      }
+    }
+  }
+}

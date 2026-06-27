@@ -1,0 +1,60 @@
+{
+  "name": "@syns/openclaw-syns",
+  "version": "0.1.0",
+  "description": "Per-turn auto-pull and auto-push of a Syns repository on every OpenClaw agent turn, scoped to directories containing a .syns.yaml.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.5.4",
+      "minGatewayVersion": "2026.5.4"
+    },
+    "build": {
+      "openclawVersion": "2026.6.10",
+      "pluginSdkVersion": "2026.6.10"
+    }
+  },
+  "keywords": [
+    "openclaw",
+    "syns",
+    "version-control",
+    "multi-agent",
+    "automation",
+    "hooks",
+    "auto-commit"
+  ],
+  "author": {
+    "name": "Bartosz Sojka",
+    "email": "bartsoj@gmail.com",
+    "url": "https://syns.dev"
+  },
+  "homepage": "https://syns.dev",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/synsdev/syns-openclaw-plugins.git",
+    "directory": "plugins/syns"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}
