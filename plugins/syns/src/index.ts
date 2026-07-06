@@ -70,7 +70,7 @@ function resolve(event: any): Resolved {
   const cfg = (event?.context?.pluginConfig ?? {}) as SynsConfig;
   return {
     pushMessage:
-      str(cfg.pushMessage) ?? process.env.SYNS_PUSH_MESSAGE || "openclaw session",
+      str(cfg.pushMessage) ?? (process.env.SYNS_PUSH_MESSAGE || "openclaw session"),
     installIfMissing: cfg.installIfMissing ?? true,
     pullOnTurnStart: cfg.pullOnTurnStart ?? true,
     pushOnTurnEnd: cfg.pushOnTurnEnd ?? true,
