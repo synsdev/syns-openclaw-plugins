@@ -18,11 +18,24 @@
  *     plugin must be granted conversation access in the gateway config:
  *       plugins.entries.syns.hooks.allowConversationAccess = true
  *     Without it these hooks never fire. See README.
+ *
+ * Config vs env vars (IMPORTANT):
+ *   On the persistent gateway path, `event.context.pluginConfig` is not reliably
+ *   populated for these hooks — it can arrive as null. So `plugins.entries.syns.config.*`
+ *   values (cwd, synsBin, ...) may NOT reach the running hook. The reliable knobs are
+ *   environment variables set on the gateway service env, plus robust auto-detection:
+ *     - SYNS_CWD           -> the Syns repo working directory (REQUIRED unless the
+ *                             gateway's own cwd is already inside the repo)
+ *     - SYNS_PUSH_MESSAGE  -> commit message (optional)
+ *   The binary is auto-located across PATH + ~/.cargo/bin + ~/.local/bin + the usual
+ *   Homebrew/local prefixes, with a HOME fallback for bare launchd environments, so
+ *   `synsBin` config is normally unnecessary. See README § Setup.
  */
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { homedir, userInfo } from "node:os";
 
 const execFileAsync = promisify(execFile);
 
@@ -38,14 +51,16 @@ interface SynsConfig {
   /** Run `syns push --if-repo` at the end of every turn. Default true. */
   pushOnTurnEnd?: boolean;
   /**
-   * Working directory to run `syns` in — must be (or be inside) the Syns repo. Highest-priority
-   * cwd source. Set this via `openclaw config set plugins.entries.syns.config.cwd "/path"`; it
-   * survives `gateway restart`, unlike the SYNS_CWD env var. Default: auto-detected.
+   * Working directory to run `syns` in — must be (or be inside) the Syns repo.
+   * NOTE: config injection is unreliable on the gateway hook path (see file header);
+   * prefer the SYNS_CWD env var, which is the primary cwd source in practice.
+   * Default: auto-detected from event/env, else process cwd.
    */
   cwd?: string;
   /**
-   * Path to the `syns` binary. Use an absolute path if `syns` is not on the gateway daemon's
-   * PATH. Default "syns".
+   * Path to the `syns` binary. Normally unnecessary — the plugin auto-locates syns across
+   * PATH, ~/.cargo/bin, ~/.local/bin, /usr/local/bin, /opt/homebrew/bin. Set an absolute
+   * path only for a non-standard install. (Also subject to the config-injection caveat.)
    */
   synsBin?: string;
   /** Log resolved cwd and every syns invocation to stderr (gateway log). Default false. */
@@ -84,9 +99,10 @@ function resolve(event: any): Resolved {
  * Resolve the working directory to run `syns` in. `--if-repo` resolves the repo identity from
  * the cwd (`.syns.yaml` in the tree), so this MUST be the session's working tree.
  *
- * Priority: explicit `config.cwd` -> $SYNS_CWD -> known event context fields -> process cwd.
- * OpenClaw doesn't document one canonical context field for conversation hooks, so we probe
- * candidates. The config option is the reliable knob (survives `gateway restart`).
+ * Priority: explicit `config.cwd` (if it arrives) -> $SYNS_CWD -> known event context
+ * fields -> process cwd. In practice SYNS_CWD is the reliable knob because pluginConfig
+ * is often null on the gateway hook path; OpenClaw also doesn't expose one canonical
+ * workspace field for conversation hooks, so we probe several candidates.
  */
 function resolveCwd(event: any, override?: string): string {
   const ctx = event?.context ?? {};
@@ -123,9 +139,25 @@ let effectiveBin: string | null = null; // resolved usable binary path/name
 let installAttempted = false;
 let ensureInFlight: Promise<string | null> | null = null;
 
+function resolveHome(): string {
+  // Gateway daemons (launchd) may run with an empty/unset HOME. Fall back to the
+  // OS user-info home so ~/.cargo/bin resolution still works under a bare env.
+  const fromEnv = process.env.HOME || process.env.USERPROFILE || "";
+  if (fromEnv) return fromEnv;
+  try {
+    return userInfo().homedir || homedir() || "";
+  } catch {
+    try {
+      return homedir() || "";
+    } catch {
+      return "";
+    }
+  }
+}
+
 function candidateBins(bin: string): string[] {
   if (bin !== "syns") return [bin]; // explicit path/name from config — respect it
-  const home = process.env.HOME ?? "";
+  const home = resolveHome();
   return [
     "syns", // whatever PATH the daemon does have
     home && `${home}/.cargo/bin/syns`,
@@ -137,7 +169,9 @@ function candidateBins(bin: string): string[] {
 
 async function hasSyns(bin: string, cwd: string): Promise<boolean> {
   try {
-    await execFileAsync(bin, ["--version"], { cwd, timeout: 10_000 });
+    // Probe with `--help` (exit 0), NOT `--version`: the syns CLI is subcommand-only
+    // and rejects `--version`/`-V` with a non-zero exit, which would make detection fail.
+    await execFileAsync(bin, ["--help"], { cwd, timeout: 10_000 });
     return true;
   } catch {
     return false;
