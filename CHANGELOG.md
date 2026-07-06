@@ -30,6 +30,10 @@ First release. OpenClaw port of `syns-claude-plugins`. One plugin, two typed hoo
   `tsc` needs only `typescript` + `@types/node` — no dependency on the `openclaw` package.
   Built against `openclaw@2026.6.10`; compat floor `>=2026.5.4` (compiled-JS install baseline).
 - Root npm workspace so `npm install && npm run build` from the repo root builds every plugin.
+- Config options `cwd`, `synsBin`, and `debug` (settable via `openclaw config set
+  plugins.entries.syns.config.*`): `cwd` is the highest-priority working-directory source and
+  survives `gateway restart` (unlike `SYNS_CWD`); `synsBin` sets an absolute path when `syns`
+  isn't on the daemon PATH; `debug` logs the resolved cwd and every syns invocation to stderr.
 
 ### OpenClaw-specific adaptations (vs. the Claude / Codex ports)
 

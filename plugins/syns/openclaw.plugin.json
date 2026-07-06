@@ -28,6 +28,20 @@
         "type": "boolean",
         "default": true,
         "description": "Run `syns push --if-repo` at the end of every agent turn (agent_end)."
+      },
+      "cwd": {
+        "type": "string",
+        "description": "Working directory to run syns in — the Syns repo path. Highest-priority cwd source; survives gateway restart (unlike the SYNS_CWD env var). Default: auto-detected."
+      },
+      "synsBin": {
+        "type": "string",
+        "default": "syns",
+        "description": "Path to the syns binary. Use an absolute path if syns is not on the gateway daemon's PATH."
+      },
+      "debug": {
+        "type": "boolean",
+        "default": false,
+        "description": "Log resolved cwd and every syns invocation to stderr (gateway log)."
       }
     }
   }
