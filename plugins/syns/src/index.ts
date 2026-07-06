@@ -112,14 +112,28 @@ function dbg(debug: boolean, ...args: unknown[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// Install-if-missing. The PATH presence is re-checked cheaply each call (PATH may
-// gain `syns` between processes), but the install script is attempted at most ONCE
-// per process — install.sh edits the shell rc, not this process's PATH, so retrying
-// it within the same process is pointless and slow.
+// Locate the `syns` binary. The gateway daemon often runs with a minimal PATH
+// (launchd/Homebrew) that omits ~/.cargo/bin etc., so a bare "syns" fails even when
+// the user's shell has it. When config.synsBin isn't an explicit path, we probe the
+// common install locations. The install script is attempted at most ONCE per process
+// (install.sh edits the shell rc, not this process's PATH). The resolved absolute
+// path is cached for the process.
 // ---------------------------------------------------------------------------
-let synsReady = false; // true once `syns --version` has succeeded this process
-let installAttempted = false; // install script tried once this process
-let ensureInFlight: Promise<boolean> | null = null;
+let effectiveBin: string | null = null; // resolved usable binary path/name
+let installAttempted = false;
+let ensureInFlight: Promise<string | null> | null = null;
+
+function candidateBins(bin: string): string[] {
+  if (bin !== "syns") return [bin]; // explicit path/name from config — respect it
+  const home = process.env.HOME ?? "";
+  return [
+    "syns", // whatever PATH the daemon does have
+    home && `${home}/.cargo/bin/syns`,
+    home && `${home}/.local/bin/syns`,
+    "/usr/local/bin/syns",
+    "/opt/homebrew/bin/syns",
+  ].filter((b): b is string => Boolean(b));
+}
 
 async function hasSyns(bin: string, cwd: string): Promise<boolean> {
   try {
@@ -130,18 +144,28 @@ async function hasSyns(bin: string, cwd: string): Promise<boolean> {
   }
 }
 
-async function ensureSyns(r: Resolved): Promise<boolean> {
-  if (synsReady) return true;
+async function findSyns(r: Resolved): Promise<string | null> {
+  for (const b of candidateBins(r.bin)) {
+    if (await hasSyns(b, r.cwd)) return b;
+  }
+  return null;
+}
+
+/** Returns a usable `syns` binary path, or null if unavailable. Cached per process. */
+async function ensureSyns(r: Resolved): Promise<string | null> {
+  if (effectiveBin) return effectiveBin;
   if (ensureInFlight) return ensureInFlight;
 
   ensureInFlight = (async () => {
-    if (await hasSyns(r.bin, r.cwd)) {
-      synsReady = true;
-      return true;
+    let found = await findSyns(r);
+    if (found) {
+      effectiveBin = found;
+      dbg(r.debug, `resolved syns binary: ${found}`);
+      return found;
     }
     if (!r.installIfMissing || installAttempted) {
       dbg(r.debug, `syns not found (bin="${r.bin}") and install skipped.`);
-      return false;
+      return null;
     }
 
     installAttempted = true;
@@ -155,14 +179,17 @@ async function ensureSyns(r: Resolved): Promise<boolean> {
     } catch (err) {
       console.error(`${LOG_PREFIX} install failed:`, errText(err));
     }
-    synsReady = await hasSyns(r.bin, r.cwd);
-    if (!synsReady) {
+    found = await findSyns(r);
+    if (found) {
+      effectiveBin = found;
+      dbg(r.debug, `resolved syns binary after install: ${found}`);
+    } else {
       console.error(
-        `${LOG_PREFIX} syns CLI not on PATH after install (bin="${r.bin}"); sync skipped ` +
+        `${LOG_PREFIX} syns CLI not found after install (bin="${r.bin}"); sync skipped ` +
           `(usable next process, or set config.synsBin to an absolute path).`,
       );
     }
-    return synsReady;
+    return found;
   })();
 
   try {
@@ -200,9 +227,9 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-async function runSyns(r: Resolved, args: string[]): Promise<void> {
+async function runSyns(bin: string, r: Resolved, args: string[]): Promise<void> {
   try {
-    const { stdout } = await execFileAsync(r.bin, args, { cwd: r.cwd, timeout: 60_000 });
+    const { stdout } = await execFileAsync(bin, args, { cwd: r.cwd, timeout: 60_000 });
     const out = String(stdout ?? "").trim();
     dbg(r.debug, `ok: syns ${args.join(" ")} (cwd=${r.cwd})${out ? ` | ${out}` : ""}`);
   } catch (err) {
@@ -213,15 +240,17 @@ async function runSyns(r: Resolved, args: string[]): Promise<void> {
 }
 
 async function pull(r: Resolved): Promise<void> {
-  dbg(r.debug, `before_agent_run -> pull (cwd=${r.cwd}, bin="${r.bin}")`);
-  if (!(await ensureSyns(r))) return;
-  await serialize(r.cwd, () => runSyns(r, ["pull", "--if-repo"]));
+  dbg(r.debug, `before_agent_run -> pull (cwd=${r.cwd})`);
+  const bin = await ensureSyns(r);
+  if (!bin) return;
+  await serialize(r.cwd, () => runSyns(bin, r, ["pull", "--if-repo"]));
 }
 
 async function push(r: Resolved): Promise<void> {
-  dbg(r.debug, `agent_end -> push (cwd=${r.cwd}, bin="${r.bin}")`);
-  if (!(await ensureSyns(r))) return;
-  await serialize(r.cwd, () => runSyns(r, ["push", "--if-repo", "-m", r.pushMessage]));
+  dbg(r.debug, `agent_end -> push (cwd=${r.cwd})`);
+  const bin = await ensureSyns(r);
+  if (!bin) return;
+  await serialize(r.cwd, () => runSyns(bin, r, ["push", "--if-repo", "-m", r.pushMessage]));
 }
 
 export default definePluginEntry({

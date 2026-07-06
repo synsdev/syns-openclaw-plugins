@@ -34,6 +34,9 @@ First release. OpenClaw port of `syns-claude-plugins`. One plugin, two typed hoo
   plugins.entries.syns.config.*`): `cwd` is the highest-priority working-directory source and
   survives `gateway restart` (unlike `SYNS_CWD`); `synsBin` sets an absolute path when `syns`
   isn't on the daemon PATH; `debug` logs the resolved cwd and every syns invocation to stderr.
+- Binary auto-probe: when `synsBin` isn't an explicit path, `ensureSyns` probes the daemon PATH
+  plus common install locations (`~/.cargo/bin`, `~/.local/bin`, `/usr/local/bin`,
+  `/opt/homebrew/bin`) so cargo/curl installs are found even under a minimal launchd PATH.
 
 ### OpenClaw-specific adaptations (vs. the Claude / Codex ports)
 
