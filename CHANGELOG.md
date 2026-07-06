@@ -19,24 +19,25 @@ First release. OpenClaw port of `syns-claude-plugins`. One plugin, two typed hoo
 - First-use bootstrap: if `syns` isn't on `PATH`, runs
   `curl -fsSL https://install.syns.dev/install.sh | sh` (cached to run at most once per
   process; toggle with `installIfMissing`).
+- Environment variables are the reliable configuration knobs: `SYNS_CWD` sets the repo working
+  directory (highest-priority cwd source) and `SYNS_PUSH_MESSAGE` sets the commit message
+  (default `openclaw session`). On the persistent-gateway hook path `event.context.pluginConfig`
+  is frequently `null`, so these env vars — not `config` — are what reliably reach the hook.
 - Plugin config via `openclaw.plugin.json` `configSchema` (`pushMessage`, `installIfMissing`,
-  `pullOnTurnStart`, `pushOnTurnEnd`), read at hook time from `event.context.pluginConfig`.
-  `pushMessage` falls back to `$SYNS_PUSH_MESSAGE`, then `openclaw session`.
+  `pullOnTurnStart`, `pushOnTurnEnd`, `cwd`, `synsBin`), read from `event.context.pluginConfig`
+  when present (advisory — see env-var note above). The schema uses `additionalProperties: true`
+  so an unrecognized key never causes a config-reload skip.
 - Per-cwd serialization mutex so a fire-and-forget `agent_end` push can't overlap the next
   turn's pull on persistent-gateway paths.
-- `SYNS_CWD` env override: highest-priority working-directory source, so sync works
-  deterministically regardless of how OpenClaw exposes the session working tree.
+- Binary auto-detection: probes the daemon PATH plus common install locations (`~/.cargo/bin`,
+  `~/.local/bin`, `/usr/local/bin`, `/opt/homebrew/bin`) so cargo/curl installs are found under
+  a minimal launchd/systemd PATH. `$HOME` falls back to the OS user record (`os.userInfo()` /
+  `os.homedir()`) for bare daemon environments, and detection uses `syns --help` (not
+  `--version`, which the subcommand-only CLI rejects). `synsBin` overrides for non-standard installs.
 - Self-contained build: the SDK symbol (`definePluginEntry`) is declared ambiently, so
   `tsc` needs only `typescript` + `@types/node` — no dependency on the `openclaw` package.
   Built against `openclaw@2026.6.10`; compat floor `>=2026.5.4` (compiled-JS install baseline).
 - Root npm workspace so `npm install && npm run build` from the repo root builds every plugin.
-- Config options `cwd`, `synsBin`, and `debug` (settable via `openclaw config set
-  plugins.entries.syns.config.*`): `cwd` is the highest-priority working-directory source and
-  survives `gateway restart` (unlike `SYNS_CWD`); `synsBin` sets an absolute path when `syns`
-  isn't on the daemon PATH; `debug` logs the resolved cwd and every syns invocation to stderr.
-- Binary auto-probe: when `synsBin` isn't an explicit path, `ensureSyns` probes the daemon PATH
-  plus common install locations (`~/.cargo/bin`, `~/.local/bin`, `/usr/local/bin`,
-  `/opt/homebrew/bin`) so cargo/curl installs are found even under a minimal launchd PATH.
 
 ### OpenClaw-specific adaptations (vs. the Claude / Codex ports)
 
@@ -56,5 +57,9 @@ First release. OpenClaw port of `syns-claude-plugins`. One plugin, two typed hoo
 - macOS and Linux only.
 - First-run install activates from the next process (`install.sh` edits the shell rc, not the
   running process `PATH`).
-- Working-directory resolution probes candidate context fields and falls back to the process
-  cwd; the canonical OpenClaw field is unconfirmed (see `PLAN.md` § Open questions).
+- Working-directory resolution: `pluginConfig` is often `null` on the gateway hook path and
+  OpenClaw exposes no canonical workspace field for conversation hooks, so `SYNS_CWD` must be set
+  in the gateway **service** env (see README § Configuration). Otherwise it probes context fields
+  and falls back to the process cwd.
+- After editing the manifest or rebuilding `dist/`, a full `gateway restart` (plus
+  `openclaw plugins registry --refresh`) is required — a hot config reload won't re-register hooks.

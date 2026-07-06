@@ -37,11 +37,6 @@
         "type": "string",
         "default": "syns",
         "description": "Path to the syns binary. Use an absolute path if syns is not on the gateway daemon's PATH."
-      },
-      "debug": {
-        "type": "boolean",
-        "default": false,
-        "description": "Log resolved cwd and every syns invocation to stderr (gateway log)."
       }
     }
   }

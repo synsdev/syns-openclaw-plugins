@@ -63,8 +63,6 @@ interface SynsConfig {
    * path only for a non-standard install. (Also subject to the config-injection caveat.)
    */
   synsBin?: string;
-  /** Log resolved cwd and every syns invocation to stderr (gateway log). Default false. */
-  debug?: boolean;
 }
 
 interface Resolved {
@@ -74,7 +72,6 @@ interface Resolved {
   pushOnTurnEnd: boolean;
   cwd: string;
   bin: string;
-  debug: boolean;
 }
 
 function str(v: unknown): string | undefined {
@@ -91,7 +88,6 @@ function resolve(event: any): Resolved {
     pushOnTurnEnd: cfg.pushOnTurnEnd ?? true,
     cwd: resolveCwd(event, str(cfg.cwd)),
     bin: str(cfg.synsBin) ?? "syns",
-    debug: cfg.debug ?? false,
   };
 }
 
@@ -121,10 +117,6 @@ function resolveCwd(event: any, override?: string): string {
     if (s) return s;
   }
   return process.cwd();
-}
-
-function dbg(debug: boolean, ...args: unknown[]): void {
-  if (debug) console.error(LOG_PREFIX, ...args);
 }
 
 // ---------------------------------------------------------------------------
@@ -194,16 +186,11 @@ async function ensureSyns(r: Resolved): Promise<string | null> {
     let found = await findSyns(r);
     if (found) {
       effectiveBin = found;
-      dbg(r.debug, `resolved syns binary: ${found}`);
       return found;
     }
-    if (!r.installIfMissing || installAttempted) {
-      dbg(r.debug, `syns not found (bin="${r.bin}") and install skipped.`);
-      return null;
-    }
+    if (!r.installIfMissing || installAttempted) return null;
 
     installAttempted = true;
-    dbg(r.debug, "syns not found; running install.syns.dev/install.sh …");
     try {
       await execFileAsync(
         "sh",
@@ -216,7 +203,6 @@ async function ensureSyns(r: Resolved): Promise<string | null> {
     found = await findSyns(r);
     if (found) {
       effectiveBin = found;
-      dbg(r.debug, `resolved syns binary after install: ${found}`);
     } else {
       console.error(
         `${LOG_PREFIX} syns CLI not found after install (bin="${r.bin}"); sync skipped ` +
@@ -263,9 +249,7 @@ function errText(err: unknown): string {
 
 async function runSyns(bin: string, r: Resolved, args: string[]): Promise<void> {
   try {
-    const { stdout } = await execFileAsync(bin, args, { cwd: r.cwd, timeout: 60_000 });
-    const out = String(stdout ?? "").trim();
-    dbg(r.debug, `ok: syns ${args.join(" ")} (cwd=${r.cwd})${out ? ` | ${out}` : ""}`);
+    await execFileAsync(bin, args, { cwd: r.cwd, timeout: 60_000 });
   } catch (err) {
     // --if-repo turns "not a Syns repo" into a silent exit 0, so anything that lands
     // here is a genuine failure (network, auth, server). Surface it, never throw.
@@ -274,14 +258,12 @@ async function runSyns(bin: string, r: Resolved, args: string[]): Promise<void> 
 }
 
 async function pull(r: Resolved): Promise<void> {
-  dbg(r.debug, `before_agent_run -> pull (cwd=${r.cwd})`);
   const bin = await ensureSyns(r);
   if (!bin) return;
   await serialize(r.cwd, () => runSyns(bin, r, ["pull", "--if-repo"]));
 }
 
 async function push(r: Resolved): Promise<void> {
-  dbg(r.debug, `agent_end -> push (cwd=${r.cwd})`);
   const bin = await ensureSyns(r);
   if (!bin) return;
   await serialize(r.cwd, () => runSyns(bin, r, ["push", "--if-repo", "-m", r.pushMessage]));

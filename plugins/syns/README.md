@@ -144,7 +144,6 @@ SYNS_CWD=/path/to/your/syns/repo openclaw gateway restart
 | `pushOnTurnEnd`    | `true`             | Push at the end of every turn (`agent_end`).                   |
 | `cwd`              | auto               | Repo dir. Prefer `SYNS_CWD` — this may not reach the hook.      |
 | `synsBin`          | auto               | Path to `syns`. Normally unnecessary (auto-detected).          |
-| `debug`            | `false`            | Log resolved cwd + every invocation to the gateway log.        |
 
 The manifest schema uses `additionalProperties: true`, so an unrecognized config key never
 fails config reload (a stricter schema previously caused reloads to be skipped, which reverted
@@ -186,7 +185,8 @@ symlink `syns` into a standard prefix) only for a non-standard install.
 
 ## Troubleshooting
 
-Enable `debug` (or watch the gateway log) and look for `[syns]` lines.
+Watch the gateway log for `[syns]` lines (only genuine failures are logged; successful
+pulls/pushes and no-ops are silent).
 
 | Symptom (in the gateway log)                                              | Cause / fix                                                                                     |
 |:--------------------------------------------------------------------------|:------------------------------------------------------------------------------------------------|
