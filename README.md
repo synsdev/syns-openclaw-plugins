@@ -12,7 +12,7 @@ npm packages that register **typed lifecycle hooks** through the Plugin SDK.
 
 | Plugin                   | Description                                                                                              |
 |:-------------------------|:-------------------------------------------------------------------------------------------------------|
-| [`syns`](./plugins/syns) | Auto-pull on every turn start and auto-push on every turn end. One commit per agent turn. Silent no-op outside a Syns repo. |
+| [`syns`](./plugins/syns) | Pulls before every agent turn and syncs when the turn finishes, continuing the agent only when a resolution is required. Silent no-op outside a Syns repo. |
 
 ## Install (local / development)
 
@@ -30,8 +30,8 @@ openclaw gateway restart
 openclaw plugins inspect syns --runtime --json   # confirm both hooks registered
 ```
 
-Then grant the plugin conversation access (required for its hooks to fire) and, for a
-deterministic first test, point it at your repo with `SYNS_CWD` — see the
+Then grant the plugin conversation access (required for its finish hooks to fire), point it
+at your repo with `config.cwd` or `SYNS_CWD`, and run `syns login` once — see the
 [plugin README](./plugins/syns/README.md#required-configuration--conversation-access).
 
 > Compiled JS is required: since OpenClaw 2026.5.4 the gateway won't load `.ts` for
@@ -45,8 +45,8 @@ Once published to ClawHub the install collapses to `openclaw plugins install cla
 | | Claude Code / Codex | OpenClaw |
 |:---|:---|:---|
 | Hook body | shell command string in `hooks.json` | **TypeScript handler** (`api.on(...)`), shells out via `node:child_process` |
-| Pull trigger | `SessionStart` (once per session) | `before_agent_run` (**every turn**) |
-| Push trigger | `Stop` (per turn) | `agent_end` (per turn) |
+| Pull trigger | `SessionStart` (once per session) | `agent_turn_prepare` (**every turn**) |
+| Sync trigger | `Stop` (per turn) | `before_agent_finalize` (per turn; `agent_end` where a runner never finalizes) |
 | Distribution | plugin marketplace | **ClawHub** / npm (`openclaw plugins install`) |
 | Gating | trust review | `plugins.entries.syns.hooks.allowConversationAccess` |
 
@@ -58,6 +58,7 @@ See [`PLAN.md`](./PLAN.md) for the full design, rationale, and open questions.
 npm install          # from the repo root (workspaces)
 npm run build        # build all plugins -> dist/
 npm run check        # type-check only
+npm test             # build, then run each plugin's tests
 ```
 
 The build deliberately does **not** depend on the `openclaw` package: the one SDK symbol used

@@ -1,7 +1,7 @@
 {
   "id": "syns",
   "name": "Syns",
-  "description": "Per-turn auto-pull and auto-push of a Syns repository, scoped to directories containing a .syns.yaml.",
+  "description": "Pull a Syns repository before every OpenClaw agent turn and sync it when the turn finishes, scoped to directories containing a .syns.yaml.",
   "activation": {
     "onStartup": true
   },
@@ -9,11 +9,6 @@
     "type": "object",
     "additionalProperties": true,
     "properties": {
-      "pushMessage": {
-        "type": "string",
-        "default": "openclaw session",
-        "description": "Commit message used by `syns push`. Overrides the SYNS_PUSH_MESSAGE env var."
-      },
       "installIfMissing": {
         "type": "boolean",
         "default": true,
@@ -22,12 +17,16 @@
       "pullOnTurnStart": {
         "type": "boolean",
         "default": true,
-        "description": "Run `syns pull --if-repo` at the start of every agent turn (before_agent_run)."
+        "description": "Run `syns pull --if-repo` before every agent turn (agent_turn_prepare)."
+      },
+      "syncOnTurnEnd": {
+        "type": "boolean",
+        "default": true,
+        "description": "Run `syns sync --if-repo` when every agent turn finishes (before_agent_finalize, or agent_end where a runner never finalizes)."
       },
       "pushOnTurnEnd": {
         "type": "boolean",
-        "default": true,
-        "description": "Run `syns push --if-repo` at the end of every agent turn (agent_end)."
+        "description": "Deprecated: the earlier name of syncOnTurnEnd, read only where that is unset."
       },
       "cwd": {
         "type": "string",

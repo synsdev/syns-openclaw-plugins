@@ -1,29 +1,35 @@
 # `syns` plugin (OpenClaw)
 
-Two typed hooks. Per-turn sync of a [Syns](https://syns.dev) repository.
+Keeps a [Syns](https://syns.dev) working copy converged while an agent works, turn by turn.
 
-| Hook (typed)       | Fires            | Action                                                                                           |
-|:-------------------|:-----------------|:-------------------------------------------------------------------------------------------------|
-| `before_agent_run` | start of a turn  | `syns pull --if-repo` — refresh the working tree if it resolves to a Syns repo, no-op otherwise. |
-| `agent_end`        | end of a turn    | `syns push --if-repo -m "<message>"` — commit + push the working tree as a single version.       |
+| Hook (typed)            | Fires                     | Action                                                                                              |
+|:------------------------|:--------------------------|:----------------------------------------------------------------------------------------------------|
+| `agent_turn_prepare`    | before every turn         | `syns pull --if-repo`; a pending resolution is prepended to the turn.                                |
+| `before_agent_finalize` | when a turn is about to finish | `syns sync --if-repo`; a resolution sends the agent back for another pass (`revise`).            |
+| `agent_end`             | when a turn ended         | `syns sync --if-repo` for a turn no `before_agent_finalize` saw (a runner that never calls it).      |
 
 Unlike the [Claude Code](https://github.com/synsdev/syns-claude-plugins) and
 [Codex](https://github.com/synsdev/syns-codex-plugins) ports (which pull once at session
-start), this OpenClaw port **pulls and pushes on every turn**.
+start), this port **pulls before every turn**.
 
-OpenClaw has no shell-string hook format; both hooks are TypeScript handlers registered
-through the Plugin SDK (`definePluginEntry` + `api.on(...)`) that shell out to the `syns`
-CLI via `node:child_process`.
+The handlers run the commands a person would run and only map the CLI's exit code to OpenClaw:
+
+| `syns` exits | before a turn | when a turn finishes |
+|:--|:--|:--|
+| `0`: synced, no changes, or not a Syns folder | nothing | nothing |
+| `4`: resolution required | the CLI's instruction is prepended to the turn, asking the agent to finish it before new work | `before_agent_finalize` answers `revise` with the CLI's instruction. From `agent_end`, which can only observe, the next turn's pull hands it over. |
+| anything else: a credential or permission failure, an unreachable server, a validation failure, attention required | a `[syns]` warning with the CLI's own line in the gateway log | the same; the agent is not continued |
+
+Nothing publishes past a moved head until the agent runs `syns resolution continue`. OpenClaw caps `revise` at 3 passes per turn, and the CLI bounds its own rounds, ending with attention required.
 
 ---
 
 ## TL;DR — working setup
 
-Three things must be true for the plugin to actually sync (all covered below):
-
-1. `plugins.entries.syns.hooks.allowConversationAccess = true` — or the hooks never fire.
-2. The gateway process can find the `syns` binary — auto-detected, incl. `~/.cargo/bin`.
-3. The gateway knows **which directory is your Syns repo** — set the `SYNS_CWD` env var.
+1. `plugins.entries.syns.hooks.allowConversationAccess = true`, or the finish hooks never fire.
+2. The gateway process can find the `syns` binary. It is auto-detected, including `~/.cargo/bin`.
+3. The gateway knows **which directory is your Syns repo**, through `config.cwd`, `SYNS_CWD` or the turn's workspace.
+4. `syns login` has been run once as the user the gateway runs as.
 
 ```bash
 # 1. build + install + enable
@@ -31,21 +37,20 @@ npm install && npm run build                 # from the repo root
 openclaw plugins install --link ./plugins/syns
 openclaw plugins enable syns
 
-# 2. grant conversation access (required)
+# 2. grant conversation access (required for before_agent_finalize and agent_end)
 openclaw config set plugins.entries.syns.hooks.allowConversationAccess true
 
-# 3. point syns at your repo via the service env (reliable knob — see "Configuration")
-#    Add: export SYNS_CWD='/path/to/your/syns/repo'   to the gateway service env file,
-#    then restart. (Details + why below.)
+# 3. point syns at your repo (or let the turn's workspace name it)
+openclaw config set plugins.entries.syns.config.cwd /path/to/your/syns/repo
 
 openclaw plugins registry --refresh              # pick up the manifest
 openclaw gateway restart                         # full restart, not just hot-reload
 ```
 
-Verify a turn actually pushed:
+Verify a turn synced:
 
 ```bash
-cd /path/to/your/syns/repo && syns status        # Commit + Updated should advance each turn
+cd /path/to/your/syns/repo && syns status        # workingCopyState converged after each turn
 ```
 
 ---
@@ -75,10 +80,9 @@ Once published: `openclaw plugins install clawhub:synsdev/syns`.
 
 ## Required: conversation access
 
-`before_agent_run` and `agent_end` are **raw-conversation hooks**. A non-bundled plugin must be
-explicitly granted conversation access or the hooks never fire (you'll see
-`typed hook "…" blocked because non-bundled plugins must set …allowConversationAccess=true` in
-the gateway log):
+`before_agent_finalize` and `agent_end` are **conversation hooks**. A non-bundled plugin must be
+explicitly granted conversation access or they never fire, and the gateway log shows
+`typed hook "…" blocked because non-bundled plugins must set …allowConversationAccess=true`:
 
 ```jsonc
 {
@@ -92,62 +96,34 @@ the gateway log):
 }
 ```
 
+`agent_turn_prepare` is a prompt-injection hook. It runs unless you set `hooks.allowPromptInjection = false`, and that setting also stops a pending resolution from reaching the turn.
+
 ---
 
 ## Configuration
 
-### Use environment variables, not just `config` (important)
+`plugins.entries.syns.config.*` is read when the plugin registers.
 
-On the **persistent gateway path**, `event.context.pluginConfig` is not reliably populated for
-these hooks — it frequently arrives as `null`. That means values under
-`plugins.entries.syns.config.*` (`cwd`, `synsBin`, …) may **not reach the running hook**. Do
-not rely on them for anything load-bearing.
+| Key                | Default  | Meaning                                                                                  |
+|:-------------------|:---------|:-----------------------------------------------------------------------------------------|
+| `installIfMissing` | `true`   | Install the `syns` CLI on first use if it is not found (at most once per process).       |
+| `pullOnTurnStart`  | `true`   | Pull before every turn (`agent_turn_prepare`).                                           |
+| `syncOnTurnEnd`    | `true`   | Sync when every turn finishes (`before_agent_finalize`, or `agent_end`).                 |
+| `pushOnTurnEnd`    | —        | Deprecated: the earlier name of `syncOnTurnEnd`, read only where that is unset.          |
+| `cwd`              | auto     | Repo dir. Outranks `SYNS_CWD`, which outranks the turn's workspace.                      |
+| `synsBin`          | auto     | Path to `syns`. Normally unnecessary (auto-detected).                                    |
 
-The reliable knobs are **environment variables** on the gateway service env, plus the plugin's
-built-in auto-detection:
+Environment variables on the **gateway service** (it does not inherit your interactive shell):
 
-| Env var             | Purpose                                                        | Required?                              |
-|:--------------------|:---------------------------------------------------------------|:---------------------------------------|
-| `SYNS_CWD`          | Directory of your Syns repo (where `.syns.yaml` lives).        | **Yes**, unless the gateway's own cwd is already inside the repo. |
-| `SYNS_PUSH_MESSAGE` | Commit message for `syns push`.                                | No (default `openclaw session`).       |
+| Env var            | Purpose                                                                                  |
+|:-------------------|:-----------------------------------------------------------------------------------------|
+| `SYNS_CWD`         | Directory of your Syns repo (where `.syns.yaml` lives), where `config.cwd` is unset.     |
+| `SYNS_INTEGRATION`, `SYNS_RUN`, `SYNS_TRIGGER`, `SYNS_TASK` | Published-by provenance. The plugin defaults the first three to `openclaw`, the session id and `start`/`finish`; any you set win. |
 
-#### Setting env vars for a service-managed gateway (macOS launchd / Linux systemd)
+- **macOS (launchd):** append to `~/.openclaw/service-env/ai.openclaw.gateway.env` (merge; don't clobber the generated lines), then `openclaw gateway restart`.
+- **Linux (systemd):** add `Environment=SYNS_CWD=/path/to/your/syns/repo` to the unit (or a drop-in), then `systemctl --user daemon-reload && openclaw gateway restart`.
 
-The gateway daemon does **not** inherit your interactive shell env. Set the vars in the service
-environment:
-
-- **macOS (launchd):** OpenClaw generates an env file at
-  `~/.openclaw/service-env/ai.openclaw.gateway.env`. Append your vars (merge — don't clobber the
-  generated lines), then restart:
-
-  ```bash
-  echo "export SYNS_CWD='/path/to/your/syns/repo'" >> ~/.openclaw/service-env/ai.openclaw.gateway.env
-  openclaw gateway restart
-  ```
-
-- **Linux (systemd):** add `Environment=SYNS_CWD=/path/to/your/syns/repo` to the unit (or a
-  drop-in), then `systemctl --user daemon-reload && openclaw gateway restart`.
-
-For a quick **one-shot / foreground** test you can just export inline:
-
-```bash
-SYNS_CWD=/path/to/your/syns/repo openclaw gateway restart
-```
-
-### `config` options (advisory — subject to the caveat above)
-
-| Key                | Default            | Meaning                                                        |
-|:-------------------|:-------------------|:---------------------------------------------------------------|
-| `pushMessage`      | `openclaw session` | Commit message. Overrides `$SYNS_PUSH_MESSAGE` **if injected**. |
-| `installIfMissing` | `true`             | Install the `syns` CLI on first use if it's not found.         |
-| `pullOnTurnStart`  | `true`             | Pull at the start of every turn (`before_agent_run`).          |
-| `pushOnTurnEnd`    | `true`             | Push at the end of every turn (`agent_end`).                   |
-| `cwd`              | auto               | Repo dir. Prefer `SYNS_CWD` — this may not reach the hook.      |
-| `synsBin`          | auto               | Path to `syns`. Normally unnecessary (auto-detected).          |
-
-The manifest schema uses `additionalProperties: true`, so an unrecognized config key never
-fails config reload (a stricter schema previously caused reloads to be skipped, which reverted
-the plugin to defaults).
+The manifest schema uses `additionalProperties: true`, so an unrecognized config key such as the removed `pushMessage` never fails a config reload.
 
 ---
 
@@ -160,59 +136,39 @@ The gateway daemon usually runs with a minimal `PATH` (launchd/systemd) that omi
 syns  →  $HOME/.cargo/bin/syns  →  $HOME/.local/bin/syns  →  /usr/local/bin/syns  →  /opt/homebrew/bin/syns
 ```
 
-`$HOME` is resolved from the environment and, if unset (bare launchd), from the OS user record
-(`os.userInfo()` / `os.homedir()`), so `~/.cargo/bin/syns` resolves even when the daemon has no
-`HOME`. Detection uses `syns --help` (exit 0) — **not** `syns --version`, which the
-subcommand-only CLI rejects. The resolved path is cached per process. Set `synsBin` (or just
-symlink `syns` into a standard prefix) only for a non-standard install.
+`$HOME` is resolved from the environment and, if unset (bare launchd), from the OS user record.
+Detection uses `syns --help` (exit 0), and the resolved path is cached per process. Set
+`synsBin` (or symlink `syns` into a standard prefix) only for a non-standard install.
 
 ---
 
 ## Behavior contract
 
-- **Outside Syns repos: silent no-op.** `--if-repo` exits 0 with no output unless a `.syns.yaml`
-  resolves the repository identity.
-- **Hooks never block or fail a turn.** Pull runs in `before_agent_run` and always returns a
-  `pass` outcome; push runs in observation-only `agent_end`. Pull/push errors (network, auth,
-  server) are logged to stderr and swallowed — the turn proceeds/ends normally.
-- **Per turn.** A conversation with N model turns produces up to N pulls and N commits (a turn
-  that changes nothing pushes nothing).
-- **Ordering is serialized per working directory.** On persistent-gateway paths `agent_end`
-  runs fire-and-forget; an in-process per-cwd mutex prevents a slow push from turn N from
-  overlapping the pull of turn N+1.
+- **Outside Syns repos: silent no-op.** `--if-repo` exits 0 with no output.
+- **A successful pull or sync logs nothing.**
+- **Only a resolution continues the agent.** Every other failure is a `[syns]` warning with the CLI's own line, and the turn proceeds or ends normally.
+- **Per turn.** Each turn pulls once and syncs once. A turn publishes what the folder holds at that moment, edits from other writers included, and a turn that changed nothing publishes nothing.
+- **Serialized per working directory.** A slow sync from one turn never overlaps the next turn's pull.
 
 ---
 
 ## Troubleshooting
 
-Watch the gateway log for `[syns]` lines (only genuine failures are logged; successful
-pulls/pushes and no-ops are silent).
+Watch the gateway log for `[syns]` lines.
 
 | Symptom (in the gateway log)                                              | Cause / fix                                                                                     |
 |:--------------------------------------------------------------------------|:------------------------------------------------------------------------------------------------|
 | `typed hook … blocked because non-bundled plugins must set …`             | Set `plugins.entries.syns.hooks.allowConversationAccess = true`, then full restart.             |
 | No `[syns]` lines at all; nothing syncs                                   | Stale plugin registry. `openclaw plugins registry --refresh` then **full** `gateway restart`.   |
-| `syns CLI not found after install …`                                      | Binary not on any probed path. Symlink `syns` into `/usr/local/bin`, or set `synsBin`.          |
-| Hook fires but pull/push runs in the wrong dir (no commit)                | `cwd` isn't the repo. Set `SYNS_CWD` in the **service** env (not just your shell), then restart. |
-| `config reload skipped (invalid config): … additional properties`        | Old strict schema cached. Rebuild, `registry --refresh`, full restart (fixed in current build). |
-| `syns … failed: …` (network/auth/server)                                  | A genuine `syns` error — run the same command manually from the repo to see the full message.   |
-
-Quick manual sanity check (bypasses OpenClaw entirely):
-
-```bash
-cd /path/to/your/syns/repo
-syns push --if-repo -m "manual test"
-syns status
-```
+| `the Syns CLI is not installed and could not be installed`               | Binary not on any probed path. Symlink `syns` into `/usr/local/bin`, or set `synsBin`.          |
+| `syns sync: error: authentication required — run 'syns login' first`     | Run `syns login` as the user the gateway runs as.                                               |
+| `syns sync: error: unrecognized subcommand 'sync'`                        | The CLI predates 0.3.0. Run `syns upgrade`.                                                     |
+| Hook fires but syncs the wrong directory                                  | Set `config.cwd` or `SYNS_CWD` in the **service** env, then restart.                            |
 
 ---
 
 ## Runtime notes
 
-- **Best fit: one-shot CLI runs**, where `agent_end` is awaited so each turn's push completes
-  before exit. On a persistent gateway `agent_end` is fire-and-forget; the per-cwd mutex keeps
-  pulls/pushes from interleaving, but a push may still be in flight when the turn returns.
-- **First-run install activates next process.** `install.syns.dev/install.sh` edits the shell
-  rc, not the running process `PATH`, so a freshly installed `syns` may not be visible until the
-  next OpenClaw process — that first run's sync silently no-ops.
-- **macOS and Linux only**, matching the other Syns ports.
+- **Runners without `before_agent_finalize`** (the CLI-backend runner) sync in `agent_end`. That hook can only observe, so a resolution waits for the next turn, whose pull hands it to the agent. With `pullOnTurnStart` off, the plugin queues it as a next-turn injection instead.
+- **First-run install activates next process** where `install.syns.dev/install.sh` put `syns` outside every probed path.
+- **Requirements:** Syns CLI 0.3.0 or newer; OpenClaw 2026.7.1 or newer (verified against 2026.7.1-2); macOS and Linux.

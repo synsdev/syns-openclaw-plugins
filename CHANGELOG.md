@@ -4,6 +4,34 @@ All notable changes to `syns-openclaw-plugins` are documented here. The format f
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-09-13
+
+### Changed
+
+- The `syns` plugin runs `syns sync --if-repo` when a turn finishes instead of `syns push`. It brings in the repository head and publishes the whole folder; where the head moved, it prepares a resolution instead of refusing.
+- Hooks moved to where OpenClaw lets a plugin act on the result:
+  - `agent_turn_prepare` pulls and prepends a pending resolution to the turn.
+  - `before_agent_finalize` syncs and answers `revise` with the CLI's instruction when a resolution is required.
+  - `agent_end` syncs a turn no `before_agent_finalize` saw.
+  - `before_agent_run` is no longer used: it could not add context, and a slow or failed pull there blocked the person's message.
+- The handlers only map the CLI's exit code:
+  - Exit 0 is silent.
+  - Exit 4 continues the agent with the CLI's own output.
+  - Anything else is a `[syns]` warning with the CLI's own line.
+- Every publication carries published-by provenance: `SYNS_INTEGRATION=openclaw`, `SYNS_RUN` (the session id) and `SYNS_TRIGGER` (`start` or `finish`). Each is a default only: a value set in the gateway environment wins.
+- Configuration is read from `api.pluginConfig` at registration and the working directory from the hook context's `workspaceDir`. The earlier `event.context` lookups never received either.
+- New `syncOnTurnEnd` config key; `pushOnTurnEnd` is kept as a deprecated alias.
+- Compatibility floor raised to OpenClaw 2026.7.1, verified against 2026.7.1-2.
+- Tests (`npm test`) and a CI workflow.
+
+### Removed
+
+- `pushMessage` config and `SYNS_PUSH_MESSAGE`: `syns sync` takes no commit message.
+
+### Requires
+
+- Syns CLI 0.3.0 or newer.
+
 ## [0.1.0] — Unreleased
 
 First release. OpenClaw port of `syns-claude-plugins`. One plugin, two typed hooks.

@@ -1,7 +1,7 @@
 {
   "name": "@syns/openclaw-syns",
-  "version": "0.1.0",
-  "description": "Per-turn auto-pull and auto-push of a Syns repository on every OpenClaw agent turn, scoped to directories containing a .syns.yaml.",
+  "version": "0.2.0",
+  "description": "Pull a Syns repository before every OpenClaw agent turn and sync it when the turn finishes, scoped to directories containing a .syns.yaml.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,19 +14,20 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "tsc -p tsconfig.json && node --test test/*.test.mjs"
   },
   "openclaw": {
     "extensions": [
       "./dist/index.js"
     ],
     "compat": {
-      "pluginApi": ">=2026.5.4",
-      "minGatewayVersion": "2026.5.4"
+      "pluginApi": ">=2026.7.1",
+      "minGatewayVersion": "2026.7.1"
     },
     "build": {
-      "openclawVersion": "2026.6.10",
-      "pluginSdkVersion": "2026.6.10"
+      "openclawVersion": "2026.7.1",
+      "pluginSdkVersion": "2026.7.1"
     }
   },
   "keywords": [
