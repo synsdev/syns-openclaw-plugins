@@ -3,7 +3,8 @@
  * tested on its own. It runs `syns pull` and `syns sync` — the commands a person
  * runs — and maps their exit code to OpenClaw and nothing more:
  * - 0 (synced, no changes, not a Syns folder) adds nothing and logs nothing;
- * - 4 (resolution required) continues the agent with the CLI's own output;
+ * - 4 (resolution required) continues the agent with the CLI's own output, once per
+ *   turn: asked again in the same turn, it is logged instead;
  * - anything else is logged with the CLI's own line, and never continues it.
  * SYNS_INTEGRATION, SYNS_RUN and SYNS_TRIGGER default to `openclaw`, the session
  * and `start`/`finish` wherever the gateway environment has not set them.
@@ -114,6 +115,8 @@ export interface HookContext {
 export interface FinalizeEvent {
   runId?: string;
   cwd?: string;
+  /** Set on a pass a finalize hook already sent back. */
+  stopHookActive?: boolean;
 }
 
 export interface NextTurnInjection {
@@ -143,6 +146,7 @@ export function createSyns(config: SynsConfig, host: SynsHost) {
   let ensureInFlight: Promise<string | null> | null = null;
   const locks = new Map<string, Promise<unknown>>();
   const finalized = new Set<string>();
+  const revised = new Set<string>();
 
   function cwdFor(ctx: HookContext, eventCwd?: unknown): string {
     for (const candidate of [config.cwd, host.env.SYNS_CWD, ctx.workspaceDir, eventCwd, host.env.OPENCLAW_WORKSPACE_DIR]) {
@@ -244,7 +248,14 @@ export function createSyns(config: SynsConfig, host: SynsHost) {
     try {
       const result = await runSyns("sync", ctx, cwdFor(ctx, event.cwd));
       if (!result || result.code === 0) return undefined;
-      if (result.code === RESOLUTION_REQUIRED) return { action: "revise", reason: result.output };
+      if (result.code === RESOLUTION_REQUIRED) {
+        if (event.stopHookActive || (runId && revised.has(runId))) {
+          host.warn(`syns sync: a resolution is still pending after the agent was asked once this turn: ${result.output}`);
+          return undefined;
+        }
+        if (runId) remember(revised, runId);
+        return { action: "revise", reason: result.output };
+      }
       host.warn(`syns sync: ${result.output}`);
     } catch (error) {
       host.warn(`sync hook error: ${errorText(error)}`);

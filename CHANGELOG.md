@@ -4,6 +4,12 @@ All notable changes to `syns-openclaw-plugins` are documented here. The format f
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-09-14
+
+### Changed
+
+- The finish hook sends the agent back once per turn from `before_agent_finalize`, keyed on the run and `stopHookActive`, for a resolution. If the agent stops again in the same turn with the resolution unfinished, the hook reports it instead of blocking again, and the next prompt starts over. Before, an agent that declined a resolution was blocked on every stop, until the host gave up.
+
 ## [0.2.0] — 2026-09-13
 
 ### Changed

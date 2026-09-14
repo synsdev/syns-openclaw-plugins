@@ -112,12 +112,16 @@ test("turning syncing off, by either name, stops both finish hooks", async () =>
 
 // ---- resolution required ----------------------------------------------------
 
-test("resolution required at finalize sends the agent back with the CLI's output, every time", async () => {
+test("resolution required at finalize sends the agent back once per turn", async () => {
   const h = harness();
-  h.answers({ code: 4, output: INSTRUCTION }, { code: 4, output: INSTRUCTION });
+  h.answers(...Array(4).fill({ code: 4, output: INSTRUCTION }));
   assert.deepEqual(await h.syns.beforeAgentFinalize({ runId: "run-1" }, ctx), { action: "revise", reason: INSTRUCTION });
-  assert.deepEqual(await h.syns.beforeAgentFinalize({ runId: "run-1" }, ctx), { action: "revise", reason: INSTRUCTION });
-  assert.deepEqual(h.warnings, []);
+  assert.equal(await h.syns.beforeAgentFinalize({ runId: "run-1" }, ctx), undefined);
+  assert.deepEqual(h.warnings, [`syns sync: a resolution is still pending after the agent was asked once this turn: ${INSTRUCTION}`]);
+  // the next turn starts over
+  assert.deepEqual(await h.syns.beforeAgentFinalize({ runId: "run-2" }, { ...ctx, runId: "run-2" }), { action: "revise", reason: INSTRUCTION });
+  // a pass the host marks as already sent back is not sent back again
+  assert.equal(await h.syns.beforeAgentFinalize({ runId: "run-3", stopHookActive: true }, { ...ctx, runId: "run-3" }), undefined);
 });
 
 test("a resolution pending before a turn is prepended to that turn", async () => {

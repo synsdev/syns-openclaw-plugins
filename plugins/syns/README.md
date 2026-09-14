@@ -20,7 +20,7 @@ The handlers run the commands a person would run and only map the CLI's exit cod
 | `4`: resolution required | the CLI's instruction is prepended to the turn, asking the agent to finish it before new work | `before_agent_finalize` answers `revise` with the CLI's instruction. From `agent_end`, which can only observe, the next turn's pull hands it over. |
 | anything else: a credential or permission failure, an unreachable server, a validation failure, attention required | a `[syns]` warning with the CLI's own line in the gateway log | the same; the agent is not continued |
 
-Nothing publishes past a moved head until the agent runs `syns resolution continue`. OpenClaw caps `revise` at 3 passes per turn, and the CLI bounds its own rounds, ending with attention required.
+Nothing publishes past a moved head until the agent runs `syns resolution continue`. The agent is sent back once per turn. If the pass after that still leaves the resolution unfinished, it is logged instead, and the next turn starts over.
 
 ---
 

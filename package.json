@@ -1,6 +1,6 @@
 {
   "name": "syns-openclaw-plugins",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OpenClaw plugins for the Syns multi-agent development platform.",
   "private": true,
   "type": "module",

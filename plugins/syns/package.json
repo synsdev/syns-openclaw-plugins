@@ -1,6 +1,6 @@
 {
   "name": "@syns/openclaw-syns",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pull a Syns repository before every OpenClaw agent turn and sync it when the turn finishes, scoped to directories containing a .syns.yaml.",
   "type": "module",
   "main": "./dist/index.js",
