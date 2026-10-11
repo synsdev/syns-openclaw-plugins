@@ -100,8 +100,7 @@ syns-openclaw-plugins/
   .gitignore
 ```
 
-A monorepo with `plugins/*` so a future `plan-sharing` port can live alongside, each a
-standalone publishable package.
+A monorepo with `plugins/*`, each a standalone publishable package.
 
 ---
 
